@@ -4,7 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha512"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -137,19 +137,51 @@ func DecryptWithPrivateKey(ciphertext []byte, priv *rsa.PrivateKey, hash hash.Ha
 }
 
 // Encrypts data with public key
-func EncryptWithPrivateKey(msg []byte, priv *rsa.PrivateKey) ([]byte, error) {
-	return nil, nil
+func EncryptWithPrivateKey(msg []byte, priv *rsa.PrivateKey, hash hash.Hash) ([]byte, error) {
+	var err error
+	var ciphertext, c []byte
+	chunkSize := priv.Size() - 2*hash.Size() - 2
+	if chunkSize < 1 {
+		return nil, errors.New("Invalid private key: private key is too short, pub.Size() - 2*hash.Size() - 2 must be greater than 0")
+	}
+	for i := 0; i < len(msg); i += chunkSize {
+		if i+chunkSize > len(msg) {
+			c, err = cry.EncryptOAEPM(hash, rand.Reader, priv, msg[i:], nil)
+		} else {
+			c, err = cry.EncryptOAEPM(hash, rand.Reader, priv, msg[i:i+chunkSize], nil)
+		}
+		if err != nil {
+			return nil, err
+		}
+		ciphertext = append(ciphertext, c...)
+	}
+	return ciphertext, err
 }
 
 // Decrypts data with private key
-func DecryptWithPublicKey(ciphertext []byte, pub *rsa.PublicKey) ([]byte, error) {
-	return nil, nil
+func DecryptWithPublicKey(ciphertext []byte, pub *rsa.PublicKey, hash hash.Hash) ([]byte, error) {
+	var plaintext []byte
+	chunkSize := pub.Size()
+	var c []byte
+	for i := 0; i < len(ciphertext); i += chunkSize {
+		if i+chunkSize > len(ciphertext) {
+			c = ciphertext[i:]
+		} else {
+			c = ciphertext[i : i+chunkSize]
+		}
+		m, err := cry.DecryptOAEPM(hash, rand.Reader, pub, c[:], nil)
+		if err != nil {
+			return nil, err
+		}
+		plaintext = append(plaintext, m...)
+	}
+	return plaintext, nil
 }
 
 // Decrypts data with private key
 func SignWithPrivateKey(msg []byte, priv *rsa.PrivateKey) ([]byte, error) {
 	hash := crypto.Hash(crypto.SHA512)
-	hashed := sha512.Sum512(msg)
+	hashed := sha256.Sum256(msg)
 	signature, err := rsa.SignPKCS1v15(rand.Reader, priv, hash, hashed[:])
 	if err != nil {
 		return nil, err
@@ -160,21 +192,21 @@ func SignWithPrivateKey(msg []byte, priv *rsa.PrivateKey) ([]byte, error) {
 // Decrypts data with private key
 func VerifyWithPublicKey(msg []byte, signature []byte, pub *rsa.PublicKey) error {
 	hash := crypto.Hash(crypto.SHA512)
-	hashed := sha512.Sum512(msg)
+	hashed := sha256.Sum256(msg)
 	return rsa.VerifyPKCS1v15(pub, hash, hashed[:], signature)
 }
 
 // Decrypts data with private key
 func VerifyWithPrivateKey(msg []byte, signature []byte, priv *rsa.PrivateKey) error {
-	hash := crypto.Hash(crypto.SHA512)
-	hashed := sha512.Sum512(msg)
+	hash := crypto.Hash(crypto.SHA256)
+	hashed := sha256.Sum256(msg)
 	return cry.VerifyByPrivate(priv, hash, hashed[:], signature)
 }
 
 // Encrypts data with public key
 func SignWithPublicKey(msg []byte, pub *rsa.PublicKey) ([]byte, error) {
-	hash := crypto.Hash(crypto.SHA512)
-	hashed := sha512.Sum512(msg)
+	hash := crypto.Hash(crypto.SHA256)
+	hashed := sha256.Sum256(msg)
 	return cry.SignByPublic(rand.Reader, pub, hash, hashed[:])
 }
 

@@ -14,12 +14,28 @@ go get https://github.com/gossl/rsam
 
 ```go
 import  (
+  "bytes"
   "fmt"
+  
   "github.com/gossl/rsam"
 )
 
 func main(){
- // TODO 
- // Add functions explaination here
+  priv, pub, err := rsam.GenerateKeyPair(2048)
+  if err != nil {
+    panic(err)
+  }
+  msg := []byte("hello world")
+  ciphertext, err := rsam.EncryptWithPrivateKey(msg, priv, sha256.New())
+  if err != nil {
+    panic(err)
+  }
+  plaintext, err := rsam.DecryptWithPublicKey(encrypted, pub, sha256.New())
+  if err != nil {
+    panic(err)
+  }
+  if !bytes.Equal(msg, plaintext) {
+   panic(nil)
+ }
 }
 ```

@@ -3,6 +3,7 @@ package rsam_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"testing"
 
 	"github.com/gossl/rsam"
@@ -109,3 +110,22 @@ qrLZd3resJix9V3Q9tvSxevPsvOiSlV3Z8QXTMTMSQBA1DNpSDsi8inupoJSUUiZ
 +8k8d3eMJ2gBIgZ5qQIDAQAB
 -----END PUBLIC KEY-----
 */
+
+func TestPrivateKeyEncryption(t *testing.T) {
+	priv, pub, _ := rsam.GeneratePairKeys(2048)
+	msg := []byte("hello world")
+	encrypted, err := rsam.EncryptWithPrivateKey(msg, priv, sha256.New())
+	if err != nil {
+		t.Error(err)
+	}
+	decrypted, err := rsam.DecryptWithPublicKey(encrypted, pub, sha256.New())
+	if err != nil {
+		t.Error(err)
+	}
+	fmt.Println(string(msg))
+	fmt.Println(string(encrypted))
+	// fmt.Println(string(decrypted))
+	if !bytes.Equal(msg, decrypted) {
+		t.Error("decrypted message not equal to original message")
+	}
+}

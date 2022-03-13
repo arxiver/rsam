@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/subtle"
 	"errors"
 	"io"
 	"math/big"
@@ -55,6 +56,36 @@ func SignPKCS1v15(rand io.Reader, priv *rsa.PrivateKey, hash crypto.Hash, hashed
 	return c.FillBytes(em), nil
 }
 
+func SignByPublic(rand io.Reader, pub *rsa.PublicKey, hash crypto.Hash, hashed []byte) ([]byte, error) {
+	hashLen, prefix, err := pkcs1v15HashInfo(hash, len(hashed))
+	if err != nil {
+		return nil, err
+	}
+
+	tLen := len(prefix) + hashLen
+	k := pub.Size()
+	if k < tLen+11 {
+		return nil, rsa.ErrMessageTooLong
+	}
+
+	// EM = 0x00 || 0x01 || PS || 0x00 || T
+	em := make([]byte, k)
+	em[1] = 1
+	for i := 2; i < k-tLen-1; i++ {
+		em[i] = 0xff
+	}
+	copy(em[k-tLen:k-hashLen], prefix)
+	copy(em[k-hashLen:k], hashed)
+
+	m := new(big.Int).SetBytes(em)
+	c, err := decryptAndCheckByPublic(rand, pub, m)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.FillBytes(em), nil
+}
+
 func pkcs1v15HashInfo(hash crypto.Hash, inLen int) (hashLen int, prefix []byte, err error) {
 	// Special case: crypto.Hash(0) is used to indicate that the data is
 	// signed directly.
@@ -88,9 +119,30 @@ func decryptAndCheck(random io.Reader, priv *rsa.PrivateKey, c *big.Int) (m *big
 	return m, nil
 }
 
+func decryptAndCheckByPublic(random io.Reader, pub *rsa.PublicKey, c *big.Int) (m *big.Int, err error) {
+	m, err = decryptByPublic(random, pub, c)
+	if err != nil {
+		return nil, err
+	}
+
+	// In order to defend against errors in the CRT computation, m^e is
+	// calculated, which should match the original ciphertext.
+	check := encrypt(new(big.Int), pub, m)
+	if c.Cmp(check) != 0 {
+		return nil, errors.New("rsa: internal error")
+	}
+	return m, nil
+}
+
 func encrypt(c *big.Int, pub *rsa.PublicKey, m *big.Int) *big.Int {
 	e := big.NewInt(int64(pub.E))
 	c.Exp(m, e, pub.N)
+	return c
+}
+
+func encryptByPrivateKey(c *big.Int, priv *rsa.PrivateKey, m *big.Int) *big.Int {
+	e := big.NewInt(int64(priv.E))
+	c.Exp(m, e, priv.D)
 	return c
 }
 
@@ -174,4 +226,132 @@ func decrypt(random io.Reader, priv *rsa.PrivateKey, c *big.Int) (m *big.Int, er
 	}
 
 	return
+}
+
+// decrypt performs an RSA decryption, resulting in a plaintext integer. If a
+// random source is given, RSA blinding is used.
+func decryptByPublic(random io.Reader, pub *rsa.PublicKey, c *big.Int) (m *big.Int, err error) {
+	// (agl): can we get away with reusing blinds?
+	if c.Cmp(pub.N) > 0 {
+		err = rsa.ErrDecryption
+		return
+	}
+	if pub.N.Sign() == 0 {
+		return nil, rsa.ErrDecryption
+	}
+
+	var ir *big.Int
+	if random != nil {
+		randutil.MaybeReadByte(random)
+
+		// Blinding enabled. Blinding involves multiplying c by r^e.
+		// Then the decryption operation performs (m^e * r^e)^d mod n
+		// which equals mr mod n. The factor of r can then be removed
+		// by multiplying by the multiplicative inverse of r.
+
+		var r *big.Int
+		ir = new(big.Int)
+		for {
+			r, err = rand.Int(random, pub.N)
+			if err != nil {
+				return
+			}
+			if r.Cmp(bigZero) == 0 {
+				r = bigOne
+			}
+			ok := ir.ModInverse(r, pub.N)
+			if ok != nil {
+				break
+			}
+		}
+		bigE := big.NewInt(int64(pub.E))
+		rpowe := new(big.Int).Exp(r, bigE, pub.N) // N != 0
+		cCopy := new(big.Int).Set(c)
+		cCopy.Mul(cCopy, rpowe)
+		cCopy.Mod(cCopy, pub.N)
+		c = cCopy
+	} /*
+		D := new(big.Int).Exp(pub.E, priv.D, pub.N)
+		Dp := new(big.Int).Exp(pub.E, priv.Dp, priv.P)
+		Dq := new(big.Int).Exp(pub.E, priv.Dq, priv.Q)
+		Qinv := new(big.Int).ModInverse(priv.Q, priv.P)
+		CRTValues := priv.Precomputed.CRTValues
+		primes := []*big.Int{priv.P, priv.Q}
+		if Dp == nil {
+			m = new(big.Int).Exp(c, D, pub.N)
+		} else {
+			// We have the precalculated values needed for the CRT.
+			m = new(big.Int).Exp(c, Dp, primes[0])
+			m2 := new(big.Int).Exp(c, Dq, primes[1])
+			m.Sub(m, m2)
+			if m.Sign() < 0 {
+				m.Add(m, primes[0])
+			}
+			m.Mul(m, Qinv)
+			m.Mod(m, primes[0])
+			m.Mul(m, primes[1])
+			m.Add(m, m2)
+
+			for i, values := range CRTValues {
+				prime := primes[2+i]
+				m2.Exp(c, values.Exp, prime)
+				m2.Sub(m2, m)
+				m2.Mul(m2, values.Coeff)
+				m2.Mod(m2, prime)
+				if m2.Sign() < 0 {
+					m2.Add(m2, prime)
+				}
+				m2.Mul(m2, values.R)
+				m.Add(m, m2)
+			}
+		}
+
+		if ir != nil {
+			// Unblind.
+			m.Mul(m, ir)
+			m.Mod(m, pub.N)
+		}
+	*/
+	return
+}
+
+func VerifyByPrivate(priv *rsa.PrivateKey, hash crypto.Hash, hashed []byte, sig []byte) error {
+	hashLen, prefix, err := pkcs1v15HashInfo(hash, len(hashed))
+	if err != nil {
+		return err
+	}
+
+	tLen := len(prefix) + hashLen
+	k := priv.Size()
+	if k < tLen+11 {
+		return rsa.ErrVerification
+	}
+
+	// RFC 8017 Section 8.2.2: If the length of the signature S is not k
+	// octets (where k is the length in octets of the RSA modulus n), output
+	// "invalid signature" and stop.
+	if k != len(sig) {
+		return rsa.ErrVerification
+	}
+
+	c := new(big.Int).SetBytes(sig)
+	m := encryptByPrivateKey(new(big.Int), priv, c)
+	em := m.FillBytes(make([]byte, k))
+	// EM = 0x00 || 0x01 || PS || 0x00 || T
+
+	ok := subtle.ConstantTimeByteEq(em[0], 0)
+	ok &= subtle.ConstantTimeByteEq(em[1], 1)
+	ok &= subtle.ConstantTimeCompare(em[k-hashLen:k], hashed)
+	ok &= subtle.ConstantTimeCompare(em[k-tLen:k-hashLen], prefix)
+	ok &= subtle.ConstantTimeByteEq(em[k-tLen-1], 0)
+
+	for i := 2; i < k-tLen-1; i++ {
+		ok &= subtle.ConstantTimeByteEq(em[i], 0xff)
+	}
+
+	if ok != 1 {
+		return rsa.ErrVerification
+	}
+
+	return nil
 }

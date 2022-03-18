@@ -85,8 +85,27 @@ func TestPublicKeyEncryptionLongMessage(t *testing.T) {
 	}
 }
 
-/*
------BEGIN RSA PRIVATE KEY-----
+func TestPrivateKeyEncryption(t *testing.T) {
+	priv, pub, _ := rsam.GeneratePairKeys(2048)
+	// priv, _ := rsam.BytesToPrivateKey([]byte(staticPrivateKey))
+	// pub, _ := rsam.BytesToPublicKey([]byte(staticPublicKey))
+	fmt.Println(priv.Size(), pub.Size())
+	msg := []byte("hello world 22")
+	encrypted, err := rsam.EncryptWithPrivateKey(msg, priv, sha256.New())
+	if err != nil {
+		t.Error(err)
+	}
+	decrypted, err := rsam.DecryptWithPublicKey(encrypted, pub, sha256.New())
+	if err != nil {
+		t.Error(err)
+	}
+	// fmt.Println(string(decrypted))
+	if !bytes.Equal(msg, decrypted) {
+		t.Error("decrypted message not equal to original message")
+	}
+}
+
+var staticPrivateKey = `-----BEGIN RSA PRIVATE KEY-----
 MIICXAIBAAKBgQD1/618vsRezcClpPzD4fbusyH63UiM/ZT7qzNtCIvyqW0xSzDH
 0t1/dmjQH4mOaiel2jQT9fQnSBKmGuG5GZ2ueDRgqrLZd3resJix9V3Q9tvSxevP
 svOiSlV3Z8QXTMTMSQBA1DNpSDsi8inupoJSUUiZ+8k8d3eMJ2gBIgZ5qQIDAQAB
@@ -100,32 +119,11 @@ GMocuY9O3bUUwgAGzv+MYqWVo7aIkh5SEvOaAj94q+iuB8xXkfBNw75GnQJBAOx6
 PdQxzN1EKXORKWhODA9Wi9i2GB4eV8pR/fphCZGHlygaQo1BdWWV4INm8jeyEIKJ
 Ob1tMVe+y/WFDL/Qce0CQGlcpslM+aHg0rwf7LYOjlvS+fwb+F1s6VfGLnXqAQmG
 WNySVkTY3ZHgkt8v8FM6LhJLbDDKpMGvSroXoSLGF3k=
------END RSA PRIVATE KEY-----
+-----END RSA PRIVATE KEY-----`
 
-
------BEGIN PUBLIC KEY-----
+var staticPublicKey = `-----BEGIN PUBLIC KEY-----
 MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQD1/618vsRezcClpPzD4fbusyH6
 3UiM/ZT7qzNtCIvyqW0xSzDH0t1/dmjQH4mOaiel2jQT9fQnSBKmGuG5GZ2ueDRg
 qrLZd3resJix9V3Q9tvSxevPsvOiSlV3Z8QXTMTMSQBA1DNpSDsi8inupoJSUUiZ
 +8k8d3eMJ2gBIgZ5qQIDAQAB
------END PUBLIC KEY-----
-*/
-
-func TestPrivateKeyEncryption(t *testing.T) {
-	priv, pub, _ := rsam.GeneratePairKeys(2048)
-	msg := []byte("hello world")
-	encrypted, err := rsam.EncryptWithPrivateKey(msg, priv, sha256.New())
-	if err != nil {
-		t.Error(err)
-	}
-	decrypted, err := rsam.DecryptWithPublicKey(encrypted, pub, sha256.New())
-	if err != nil {
-		t.Error(err)
-	}
-	fmt.Println(string(msg))
-	fmt.Println(string(encrypted))
-	// fmt.Println(string(decrypted))
-	if !bytes.Equal(msg, decrypted) {
-		t.Error("decrypted message not equal to original message")
-	}
-}
+-----END PUBLIC KEY-----`

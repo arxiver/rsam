@@ -146,9 +146,9 @@ func EncryptWithPrivateKey(msg []byte, priv *rsa.PrivateKey, hash hash.Hash) ([]
 	}
 	for i := 0; i < len(msg); i += chunkSize {
 		if i+chunkSize > len(msg) {
-			c, err = cry.EncryptOAEPM(hash, rand.Reader, priv, msg[i:], nil)
+			c, err = cry.EncryptOAEPM(hash, nil, priv, msg[i:], nil)
 		} else {
-			c, err = cry.EncryptOAEPM(hash, rand.Reader, priv, msg[i:i+chunkSize], nil)
+			c, err = cry.EncryptOAEPM(hash, nil, priv, msg[i:i+chunkSize], nil)
 		}
 		if err != nil {
 			return nil, err
@@ -160,16 +160,15 @@ func EncryptWithPrivateKey(msg []byte, priv *rsa.PrivateKey, hash hash.Hash) ([]
 
 // Decrypts data with private key
 func DecryptWithPublicKey(ciphertext []byte, pub *rsa.PublicKey, hash hash.Hash) ([]byte, error) {
-	var plaintext []byte
+	var plaintext,m []byte
 	chunkSize := pub.Size()
-	var c []byte
+	var err error
 	for i := 0; i < len(ciphertext); i += chunkSize {
 		if i+chunkSize > len(ciphertext) {
-			c = ciphertext[i:]
+			m, err = cry.DecryptOAEPM(hash, nil, pub, ciphertext[i:], nil)
 		} else {
-			c = ciphertext[i : i+chunkSize]
+			m, err = cry.DecryptOAEPM(hash, nil, pub, ciphertext[i : i+chunkSize], nil)
 		}
-		m, err := cry.DecryptOAEPM(hash, rand.Reader, pub, c[:], nil)
 		if err != nil {
 			return nil, err
 		}

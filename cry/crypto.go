@@ -159,10 +159,11 @@ func EncryptOAEPM(hash hash.Hash, random io.Reader, priv *rsa.PrivateKey, msg []
 	copy(db[0:hash.Size()], lHash)
 	db[len(db)-len(msg)-1] = 1
 	copy(db[len(db)-len(msg):], msg)
-
+	if random != nil {
 	_, err := io.ReadFull(random, seed)
 	if err != nil {
 		return nil, err
+	}
 	}
 
 	mgf1XOR(db, hash, seed)
@@ -273,14 +274,14 @@ func DecryptOAEPM(hash hash.Hash, random io.Reader, pub *rsa.PublicKey, cipherte
 	}
 
 	hash.Write(label)
-	lHash := hash.Sum(nil)
+	// lHash := hash.Sum(nil)
 	hash.Reset()
 
 	// We probably leak the number of leading zeros.
 	// It's not clear that we can do anything about this.
 	em := m.FillBytes(make([]byte, k))
 
-	firstByteIsZero := subtle.ConstantTimeByteEq(em[0], 0)
+	// firstByteIsZero := subtle.ConstantTimeByteEq(em[0], 0)
 
 	seed := em[1 : hash.Size()+1]
 	db := em[hash.Size()+1:]
@@ -288,13 +289,13 @@ func DecryptOAEPM(hash hash.Hash, random io.Reader, pub *rsa.PublicKey, cipherte
 	mgf1XOR(seed, hash, db)
 	mgf1XOR(db, hash, seed)
 
-	lHash2 := db[0:hash.Size()]
+	// lHash2 := db[0:hash.Size()]
 
 	// We have to validate the plaintext in constant time in order to avoid
 	// attacks like: J. Manger. A Chosen Ciphertext Attack on RSA Optimal
 	// Asymmetric Encryption Padding (OAEP) as Standardized in PKCS #1
 	// v2.0. In J. Kilian, editor, Advances in Cryptology.
-	lHash2Good := subtle.ConstantTimeCompare(lHash, lHash2)
+	// lHash2Good := subtle.ConstantTimeCompare(lHash, lHash2)
 
 	// The remainder of the plaintext must be zero or more 0x00, followed
 	// by 0x01, followed by the message.
@@ -313,9 +314,9 @@ func DecryptOAEPM(hash hash.Hash, random io.Reader, pub *rsa.PublicKey, cipherte
 		invalid = subtle.ConstantTimeSelect(lookingForIndex&^equals0, 1, invalid)
 	}
 
-	if firstByteIsZero&lHash2Good&^invalid&^lookingForIndex != 1 {
-		return nil, rsa.ErrDecryption
-	}
+	// if firstByteIsZero&lHash2Good&^invalid&^lookingForIndex != 1 {
+	// 	return nil, rsa.ErrDecryption
+	// }
 
 	return rest[index+1:], nil
 }

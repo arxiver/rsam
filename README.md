@@ -7,7 +7,7 @@ Modified package for RSA encryption and decryption to allow **large** message en
 ### Installation 
 
 ```shell
-go get https://github.com/gossl/rsam 
+go get "github.com/gossl/rsam"
 ```
 
 ### Usage

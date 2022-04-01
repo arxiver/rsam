@@ -24,6 +24,21 @@ func TestPublicKeySignature(t *testing.T) {
 	}
 }
 
+func TestPublicKeySignatureInvalid(t *testing.T) {
+	priv, pub, err := rsam.GeneratePairKeys(1024)
+	if err != nil {
+		t.Error(err)
+	}
+	signature, err := rsam.SignWithPublicKey([]byte("test"), pub)
+	if err != nil {
+		t.Error(err)
+	}
+	err = rsam.VerifyWithPrivateKey([]byte("test2"), signature, priv)
+	if err == nil {
+		t.Error(err)
+	}
+}
+
 func TestPrivateKeySignature(t *testing.T) {
 	priv, pub, err := rsam.GeneratePairKeys(1024)
 	if err != nil {
@@ -35,6 +50,21 @@ func TestPrivateKeySignature(t *testing.T) {
 	}
 	err = rsam.VerifyWithPublicKey([]byte("test"), signature, pub)
 	if err != nil {
+		t.Error()
+	}
+}
+
+func TestPrivateKeySignatureInvalid(t *testing.T) {
+	priv, pub, err := rsam.GeneratePairKeys(1024)
+	if err != nil {
+		t.Error()
+	}
+	signature, err := rsam.SignWithPrivateKey([]byte("test"), priv)
+	if err != nil {
+		t.Error()
+	}
+	err = rsam.VerifyWithPublicKey([]byte("te2st"), signature, pub)
+	if err == nil {
 		t.Error()
 	}
 }

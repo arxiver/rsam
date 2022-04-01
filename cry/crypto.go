@@ -88,6 +88,141 @@ func SignByPublic(rand io.Reader, pub *rsa.PublicKey, hash crypto.Hash, hashed [
 	return c.FillBytes(em), nil
 }
 
+func SignPSSByPublic(rand io.Reader, pub *rsa.PublicKey, hash crypto.Hash, digest []byte, opts *PSSOptions) ([]byte, error) {
+	if opts != nil && opts.Hash != 0 {
+		hash = opts.Hash
+	}
+
+	saltLength := opts.saltLength()
+	switch saltLength {
+	case PSSSaltLengthAuto:
+		saltLength = pub.Size() - 2 - hash.Size()
+	case PSSSaltLengthEqualsHash:
+		saltLength = hash.Size()
+	}
+
+	salt := make([]byte, saltLength)
+	if rand != nil {
+		if _, err := io.ReadFull(rand, salt); err != nil {
+			return nil, err
+		}
+	}
+	return signPSSWithSaltByPublic(rand, pub, hash, digest, salt)
+}
+
+// signPSSWithSaltByPublic calculates the signature of hashed using PSS with specified salt.
+// Note that hashed must be the result of hashing the input message using the
+// given hash function. salt is a random sequence of bytes whose length will be
+// later used to verify the signature.
+func signPSSWithSaltByPublic(rand io.Reader, pub *rsa.PublicKey, hash crypto.Hash, hashed, salt []byte) ([]byte, error) {
+	emBits := pub.N.BitLen() - 1
+	em, err := emsaPSSEncode(hashed, emBits, salt, hash.New())
+	if err != nil {
+		return nil, err
+	}
+	m := new(big.Int).SetBytes(em)
+	c, err := decryptAndCheckByPublic(rand, pub, m)
+	if err != nil {
+		return nil, err
+	}
+	s := make([]byte, pub.Size())
+	return c.FillBytes(s), nil
+}
+
+// signPSSWithSaltByPublic calculates the signature of hashed using PSS with specified salt.
+// Note that hashed must be the result of hashing the input message using the
+// given hash function. salt is a random sequence of bytes whose length will be
+// later used to verify the signature.
+func signPSSWithSalt(rand io.Reader, priv *rsa.PrivateKey, hash crypto.Hash, hashed, salt []byte) ([]byte, error) {
+	emBits := priv.N.BitLen() - 1
+	em, err := emsaPSSEncode(hashed, emBits, salt, hash.New())
+	if err != nil {
+		return nil, err
+	}
+	m := new(big.Int).SetBytes(em)
+	c, err := decryptAndCheck(rand, priv, m)
+	if err != nil {
+		return nil, err
+	}
+	s := make([]byte, priv.Size())
+	return c.FillBytes(s), nil
+}
+
+func emsaPSSEncode(mHash []byte, emBits int, salt []byte, hash hash.Hash) ([]byte, error) {
+	// See RFC 8017, Section 9.1.1.
+
+	hLen := hash.Size()
+	sLen := len(salt)
+	emLen := (emBits + 7) / 8
+
+	// 1.  If the length of M is greater than the input limitation for the
+	//     hash function (2^61 - 1 octets for SHA-1), output "message too
+	//     long" and stop.
+	//
+	// 2.  Let mHash = Hash(M), an octet string of length hLen.
+
+	if len(mHash) != hLen {
+		return nil, errors.New("crypto/rsa: input must be hashed with given hash")
+	}
+
+	// 3.  If emLen < hLen + sLen + 2, output "encoding error" and stop.
+
+	if emLen < hLen+sLen+2 {
+		return nil, errors.New("crypto/rsa: key size too small for PSS signature")
+	}
+
+	em := make([]byte, emLen)
+	psLen := emLen - sLen - hLen - 2
+	db := em[:psLen+1+sLen]
+	h := em[psLen+1+sLen : emLen-1]
+
+	// 4.  Generate a random octet string salt of length sLen; if sLen = 0,
+	//     then salt is the empty string.
+	//
+	// 5.  Let
+	//       M' = (0x)00 00 00 00 00 00 00 00 || mHash || salt;
+	//
+	//     M' is an octet string of length 8 + hLen + sLen with eight
+	//     initial zero octets.
+	//
+	// 6.  Let H = Hash(M'), an octet string of length hLen.
+
+	var prefix [8]byte
+
+	hash.Write(prefix[:])
+	hash.Write(mHash)
+	hash.Write(salt)
+
+	h = hash.Sum(h[:0])
+	hash.Reset()
+
+	// 7.  Generate an octet string PS consisting of emLen - sLen - hLen - 2
+	//     zero octets. The length of PS may be 0.
+	//
+	// 8.  Let DB = PS || 0x01 || salt; DB is an octet string of length
+	//     emLen - hLen - 1.
+
+	db[psLen] = 0x01
+	copy(db[psLen+1:], salt)
+
+	// 9.  Let dbMask = MGF(H, emLen - hLen - 1).
+	//
+	// 10. Let maskedDB = DB \xor dbMask.
+
+	mgf1XOR(db, hash, h)
+
+	// 11. Set the leftmost 8 * emLen - emBits bits of the leftmost octet in
+	//     maskedDB to zero.
+
+	db[0] &= 0xff >> (8*emLen - emBits)
+
+	// 12. Let EM = maskedDB || H || 0xbc.
+	em[emLen-1] = 0xbc
+
+	// 13. Output EM.
+	return em, nil
+}
+
 func pkcs1v15HashInfo(hash crypto.Hash, inLen int) (hashLen int, prefix []byte, err error) {
 	// Special case: crypto.Hash(0) is used to indicate that the data is
 	// signed directly.
@@ -160,10 +295,10 @@ func EncryptOAEPM(hash hash.Hash, random io.Reader, priv *rsa.PrivateKey, msg []
 	db[len(db)-len(msg)-1] = 1
 	copy(db[len(db)-len(msg):], msg)
 	if random != nil {
-	_, err := io.ReadFull(random, seed)
-	if err != nil {
-		return nil, err
-	}
+		_, err := io.ReadFull(random, seed)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	mgf1XOR(db, hash, seed)

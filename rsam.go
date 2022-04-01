@@ -160,14 +160,14 @@ func EncryptWithPrivateKey(msg []byte, priv *rsa.PrivateKey, hash hash.Hash) ([]
 
 // Decrypts data with private key
 func DecryptWithPublicKey(ciphertext []byte, pub *rsa.PublicKey, hash hash.Hash) ([]byte, error) {
-	var plaintext,m []byte
+	var plaintext, m []byte
 	chunkSize := pub.Size()
 	var err error
 	for i := 0; i < len(ciphertext); i += chunkSize {
 		if i+chunkSize > len(ciphertext) {
 			m, err = cry.DecryptOAEPM(hash, nil, pub, ciphertext[i:], nil)
 		} else {
-			m, err = cry.DecryptOAEPM(hash, nil, pub, ciphertext[i : i+chunkSize], nil)
+			m, err = cry.DecryptOAEPM(hash, nil, pub, ciphertext[i:i+chunkSize], nil)
 		}
 		if err != nil {
 			return nil, err
@@ -178,10 +178,13 @@ func DecryptWithPublicKey(ciphertext []byte, pub *rsa.PublicKey, hash hash.Hash)
 }
 
 // Decrypts data with private key
-func SignWithPrivateKey(msg []byte, priv *rsa.PrivateKey) ([]byte, error) {
-	hash := crypto.Hash(crypto.SHA512)
+func SignWithPrivateKey(msg []byte, priv *rsa.PrivateKey, hashOpt ...crypto.Hash) ([]byte, error) {
+	hash := crypto.Hash(crypto.SHA256)
+	if len(hashOpt) > 0 {
+		hash = crypto.Hash(hashOpt[0])
+	}
 	hashed := sha256.Sum256(msg)
-	signature, err := rsa.SignPKCS1v15(rand.Reader, priv, hash, hashed[:])
+	signature, err := rsa.SignPSS(rand.Reader, priv, hash, hashed[:], nil)
 	if err != nil {
 		return nil, err
 	}
@@ -189,24 +192,27 @@ func SignWithPrivateKey(msg []byte, priv *rsa.PrivateKey) ([]byte, error) {
 }
 
 // Decrypts data with private key
-func VerifyWithPublicKey(msg []byte, signature []byte, pub *rsa.PublicKey) error {
-	hash := crypto.Hash(crypto.SHA512)
+func VerifyWithPublicKey(msg []byte, signature []byte, pub *rsa.PublicKey, hashOpt ...crypto.Hash) error {
+	hash := crypto.Hash(crypto.SHA256)
+	if len(hashOpt) > 0 {
+		hash = crypto.Hash(hashOpt[0])
+	}
 	hashed := sha256.Sum256(msg)
-	return rsa.VerifyPKCS1v15(pub, hash, hashed[:], signature)
+	return rsa.VerifyPSS(pub, hash, hashed[:], signature, nil)
 }
 
 // Decrypts data with private key
 func VerifyWithPrivateKey(msg []byte, signature []byte, priv *rsa.PrivateKey) error {
 	hash := crypto.Hash(crypto.SHA256)
 	hashed := sha256.Sum256(msg)
-	return cry.VerifyByPrivate(priv, hash, hashed[:], signature)
+	return cry.VerifyPSSByPrivate(priv, hash, hashed[:], signature, nil)
 }
 
 // Encrypts data with public key
 func SignWithPublicKey(msg []byte, pub *rsa.PublicKey) ([]byte, error) {
 	hash := crypto.Hash(crypto.SHA256)
 	hashed := sha256.Sum256(msg)
-	return cry.SignByPublic(rand.Reader, pub, hash, hashed[:])
+	return cry.SignPSSByPublic(nil, pub, hash, hashed[:], nil)
 }
 
 // Returns base64 encoded key from file

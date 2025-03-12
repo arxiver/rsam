@@ -14,29 +14,33 @@ go get "github.com/gossl/rsam"
 ### Usage
 
 ```go
-import  (
-  "bytes"
-  "fmt"
-  
-  "github.com/gossl/rsam"
+package main
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"fmt"
+
+	"github.com/gossl/rsam"
 )
 
-func main(){
-  priv, pub, err := rsam.GenerateKeyPair(2048)
-  if err != nil {
-    panic(err)
-  }
-  msg := []byte("hello world")
-  ciphertext, err := rsam.EncryptWithPrivateKey(msg, priv, sha256.New())
-  if err != nil {
-    panic(err)
-  }
-  plaintext, err := rsam.DecryptWithPublicKey(encrypted, pub, sha256.New())
-  if err != nil {
-    panic(err)
-  }
-  if !bytes.Equal(msg, plaintext) {
-   panic(nil)
- }
+func main() {
+	priv, pub, err := rsam.GeneratePairKeys(2048)
+	if err != nil {
+		panic(err)
+	}
+	msg := []byte("hello world")
+	ciphertext, err := rsam.EncryptWithPrivateKey(msg, priv, sha256.New())
+	if err != nil {
+		panic(err)
+	}
+	plaintext, err := rsam.DecryptWithPublicKey(ciphertext, pub, sha256.New())
+	if err != nil {
+		panic(err)
+	}
+	if !bytes.Equal(msg, plaintext) {
+		panic(nil)
+	}
+	fmt.Println(string(plaintext))
 }
 ```
